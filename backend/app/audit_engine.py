@@ -65,6 +65,38 @@ def normalize_farm_id(value):
     return str(value).strip().upper()
 
 
+def parse_purchase_or_delivery_date(value):
+    """
+    Parser específico para las columnas de fecha de COMPRA (K) y ENTREGA (N) del
+    Suppliers Purchases List — confirmado empíricamente que el 100% de las fechas
+    nativas de Excel en estas columnas están invertidas (día/mes intercambiados):
+    de 5,587+ fechas nativas revisadas, el 100% tenía día<=12, lo cual es
+    estadísticamente imposible para fechas reales (se esperaría ~39%). Esto ocurre
+    porque el archivo se llenó en formato DD/MM pero Excel las auto-convirtió
+    usando MM/DD (configuración regional), guardando el valor ya invertido.
+
+    Las fechas en TEXTO (no nativas) NO tienen este problema — Excel no pudo
+    auto-convertirlas (por eso quedaron como texto) y ya se parsean correctamente
+    con parse_any_date (proban DD/MM y MM/DD, usando la única interpretación válida).
+
+    Shipment Month y Contract Date NO usan este parser — esas celdas usan formato
+    con el mes escrito (ej. "13-Jan-2026"), sin ambigüedad posicional, y no están
+    afectadas (confirmado: sus días llegan hasta 31, no solo <=12).
+    """
+    if isinstance(value, datetime.datetime):
+        try:
+            return datetime.date(value.year, value.day, value.month)  # swap día<->mes
+        except ValueError:
+            return value.date()  # si el swap no da fecha válida, se deja como está (no debería pasar)
+    if isinstance(value, datetime.date):
+        try:
+            return datetime.date(value.year, value.day, value.month)
+        except ValueError:
+            return value
+    # Strings y números de serie: parse_any_date ya los maneja correctamente
+    return parse_any_date(value)
+
+
 # ---------- Carga del maestro de productores ----------
 
 def load_master(master_path):
@@ -173,9 +205,9 @@ def load_et_file(et_path, correct_suspicious_shipment_year_to=None):
         purchases.append({
             "farm_id": normalize_farm_id(farm_id) if farm_id else None,
             "farm_name": farm_name,
-            "purchase_date": parse_any_date(purchase_date_raw),
+            "purchase_date": parse_purchase_or_delivery_date(purchase_date_raw),
             "purchase_date_raw": purchase_date_raw,
-            "delivery_date": parse_any_date(delivery_date_raw),
+            "delivery_date": parse_purchase_or_delivery_date(delivery_date_raw),
             "qty_kg": qty_kg if isinstance(qty_kg, (int, float)) else None,
         })
 
